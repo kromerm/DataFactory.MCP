@@ -4,7 +4,11 @@ using DataFactory.MCP.Extensions;
 using DataFactory.MCP.Infrastructure.Http;
 using DataFactory.MCP.Models.AirflowJob;
 using DataFactory.MCP.Models.AirflowJob.Definition;
+using DataFactory.MCP.Models.AirflowJob.Environment;
+using DataFactory.MCP.Models.AirflowJob.Files;
 using Microsoft.Extensions.Logging;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace DataFactory.MCP.Services;
 
@@ -233,6 +237,263 @@ public class FabricAirflowJobService : FabricServiceBase, IFabricAirflowJobServi
         {
             Logger.LogError(ex, "Error updating definition for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
                 airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<AirflowEnvironmentStatusResponse> GetAirflowJobEnvironmentStatusAsync(
+        string workspaceId,
+        string airflowJobId)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/environment")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Getting environment status for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            var result = await response.ReadAsJsonAsync<AirflowEnvironmentStatusResponse>(JsonOptions);
+
+            Logger.LogInformation("Successfully retrieved environment status for Apache Airflow Job {AirflowJobId}", airflowJobId);
+            return result ?? new AirflowEnvironmentStatusResponse();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting environment status for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<AirflowComputeResponse> GetAirflowJobComputeAsync(
+        string workspaceId,
+        string airflowJobId)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/environment/compute")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Getting compute configuration for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            var result = await response.ReadAsJsonAsync<AirflowComputeResponse>(JsonOptions);
+
+            Logger.LogInformation("Successfully retrieved compute configuration for Apache Airflow Job {AirflowJobId}", airflowJobId);
+            return result ?? new AirflowComputeResponse();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting compute configuration for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<AirflowEnvironmentSettingsResponse> GetAirflowJobSettingsAsync(
+        string workspaceId,
+        string airflowJobId)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/environment/settings")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Getting environment settings for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            var result = await response.ReadAsJsonAsync<AirflowEnvironmentSettingsResponse>(JsonOptions);
+
+            Logger.LogInformation("Successfully retrieved environment settings for Apache Airflow Job {AirflowJobId}", airflowJobId);
+            return result ?? new AirflowEnvironmentSettingsResponse();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting environment settings for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<AirflowLibrariesResponse> ListAirflowJobLibrariesAsync(
+        string workspaceId,
+        string airflowJobId,
+        string? continuationToken = null)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/environment/libraries")
+                .WithQueryParam("beta", (bool?)true)
+                .WithContinuationToken(continuationToken)
+                .Build();
+            Logger.LogInformation("Listing libraries for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            var result = await response.ReadAsJsonAsync<AirflowLibrariesResponse>(JsonOptions);
+
+            Logger.LogInformation("Successfully retrieved libraries for Apache Airflow Job {AirflowJobId}", airflowJobId);
+            return result ?? new AirflowLibrariesResponse();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error listing libraries for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<AirflowJobFilesResponse> ListAirflowJobFilesAsync(
+        string workspaceId,
+        string airflowJobId,
+        string? rootPath = null,
+        string? continuationToken = null)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/files")
+                .WithQueryParam("beta", (bool?)true)
+                .WithQueryParam("rootPath", rootPath)
+                .WithContinuationToken(continuationToken)
+                .Build();
+            Logger.LogInformation("Listing files for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            var result = await response.ReadAsJsonAsync<AirflowJobFilesResponse>(JsonOptions);
+
+            Logger.LogInformation("Successfully retrieved files for Apache Airflow Job {AirflowJobId}", airflowJobId);
+            return result ?? new AirflowJobFilesResponse();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error listing files for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task<string> GetAirflowJobFileAsync(
+        string workspaceId,
+        string airflowJobId,
+        string filePath)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/files/{filePath}")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Getting file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
+
+            var response = await HttpClient.GetAsync(url);
+            await response.EnsureSuccessOrThrowAsync();
+            var content = await response.Content.ReadAsStringAsync();
+
+            Logger.LogInformation("Successfully retrieved file '{FilePath}' for Apache Airflow Job {AirflowJobId}", filePath, airflowJobId);
+            return content;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task UploadAirflowJobFileAsync(
+        string workspaceId,
+        string airflowJobId,
+        string filePath,
+        string fileContent)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/files/{filePath}")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Uploading file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
+
+            var response = await HttpClient.PutAsync(url, new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(fileContent)) { Headers = { ContentType = new MediaTypeHeaderValue("application/octet-stream") } });
+            await response.EnsureSuccessOrThrowAsync();
+
+            Logger.LogInformation("Successfully uploaded file '{FilePath}' for Apache Airflow Job {AirflowJobId}", filePath, airflowJobId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error uploading file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
+            throw;
+        }
+    }
+
+    public async Task DeleteAirflowJobFileAsync(
+        string workspaceId,
+        string airflowJobId,
+        string filePath)
+    {
+        try
+        {
+            ValidateGuids(
+                (workspaceId, nameof(workspaceId)),
+                (airflowJobId, nameof(airflowJobId)));
+
+            var url = FabricUrlBuilder.ForFabricApi()
+                .WithLiteralPath($"workspaces/{workspaceId}/apacheAirflowJobs/{airflowJobId}/files/{filePath}")
+                .WithQueryParam("beta", (bool?)true)
+                .Build();
+            Logger.LogInformation("Deleting file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
+
+            var response = await HttpClient.DeleteAsync(url);
+            await response.EnsureSuccessOrThrowAsync();
+
+            Logger.LogInformation("Successfully deleted file '{FilePath}' for Apache Airflow Job {AirflowJobId}", filePath, airflowJobId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting file '{FilePath}' for Apache Airflow Job {AirflowJobId} in workspace {WorkspaceId}",
+                filePath, airflowJobId, workspaceId);
             throw;
         }
     }

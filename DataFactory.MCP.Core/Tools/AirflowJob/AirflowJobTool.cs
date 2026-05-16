@@ -6,6 +6,8 @@ using DataFactory.MCP.Abstractions.Interfaces;
 using DataFactory.MCP.Extensions;
 using DataFactory.MCP.Models.AirflowJob;
 using DataFactory.MCP.Models.AirflowJob.Definition;
+using DataFactory.MCP.Models.AirflowJob.Environment;
+using DataFactory.MCP.Models.AirflowJob.Files;
 
 namespace DataFactory.MCP.Tools.AirflowJob;
 
@@ -386,6 +388,320 @@ public class AirflowJobTool
         catch
         {
             return payload;
+        }
+    }
+
+    [McpServerTool, Description(@"Gets the environment status (Starting/Started/Stopped/etc) of an Apache Airflow Job cluster")]
+    public async Task<string> GetAirflowJobEnvironmentStatusAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+
+            var result = await _airflowJobService.GetAirflowJobEnvironmentStatusAsync(workspaceId, airflowJobId);
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("getting Apache Airflow Job environment status").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Gets the compute configuration (node size, pool template, Airflow version) of an Apache Airflow Job")]
+    public async Task<string> GetAirflowJobComputeAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+
+            var result = await _airflowJobService.GetAirflowJobComputeAsync(workspaceId, airflowJobId);
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("getting Apache Airflow Job compute configuration").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Gets the environment settings (environment variables, config overrides, triggerers) of an Apache Airflow Job")]
+    public async Task<string> GetAirflowJobSettingsAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+
+            var result = await _airflowJobService.GetAirflowJobSettingsAsync(workspaceId, airflowJobId);
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("getting Apache Airflow Job environment settings").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Lists installed Python libraries in the Apache Airflow Job environment")]
+    public async Task<string> ListAirflowJobLibrariesAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId,
+        [Description("A token for retrieving the next page of results (optional)")] string? continuationToken = null)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+
+            var response = await _airflowJobService.ListAirflowJobLibrariesAsync(workspaceId, airflowJobId, continuationToken);
+
+            var result = new
+            {
+                WorkspaceId = workspaceId,
+                AirflowJobId = airflowJobId,
+                LibraryCount = response.Value.Count,
+                ContinuationToken = response.ContinuationToken,
+                HasMoreResults = !string.IsNullOrEmpty(response.ContinuationToken),
+                Libraries = response.Value
+            };
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("listing Apache Airflow Job libraries").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Lists DAG and plugin files in an Apache Airflow Job. Use rootPath to filter by 'dags/' or 'plugins/'")]
+    public async Task<string> ListAirflowJobFilesAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId,
+        [Description("Filter by root path, e.g. 'dags/' or 'plugins/' (optional)")] string? rootPath = null,
+        [Description("A token for retrieving the next page of results (optional)")] string? continuationToken = null)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+
+            var response = await _airflowJobService.ListAirflowJobFilesAsync(workspaceId, airflowJobId, rootPath, continuationToken);
+
+            var result = new
+            {
+                WorkspaceId = workspaceId,
+                AirflowJobId = airflowJobId,
+                RootPath = rootPath,
+                FileCount = response.Value.Count,
+                ContinuationToken = response.ContinuationToken,
+                HasMoreResults = !string.IsNullOrEmpty(response.ContinuationToken),
+                Files = response.Value
+            };
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("listing Apache Airflow Job files").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Gets the content of a DAG or plugin file. filePath should start with 'dags/' or 'plugins/'")]
+    public async Task<string> GetAirflowJobFileAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId,
+        [Description("The file path, e.g. 'dags/example_dag.py' (required)")] string filePath)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+            _validationService.ValidateRequiredString(filePath, nameof(filePath));
+
+            var content = await _airflowJobService.GetAirflowJobFileAsync(workspaceId, airflowJobId, filePath);
+
+            var result = new
+            {
+                WorkspaceId = workspaceId,
+                AirflowJobId = airflowJobId,
+                FilePath = filePath,
+                Content = content
+            };
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("getting Apache Airflow Job file").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Creates or updates a DAG or plugin file in an Apache Airflow Job. filePath must start with 'dags/' or 'plugins/'. Supports Python, YAML, JSON, SQL and other text files.")]
+    public async Task<string> UploadAirflowJobFileAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId,
+        [Description("The file path, e.g. 'dags/my_dag.py' (required)")] string filePath,
+        [Description("The file content to upload (required)")] string fileContent)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+            _validationService.ValidateRequiredString(filePath, nameof(filePath));
+            _validationService.ValidateRequiredString(fileContent, nameof(fileContent));
+
+            await _airflowJobService.UploadAirflowJobFileAsync(workspaceId, airflowJobId, filePath, fileContent);
+
+            var result = new
+            {
+                Success = true,
+                Message = $"File '{filePath}' uploaded successfully",
+                WorkspaceId = workspaceId,
+                AirflowJobId = airflowJobId,
+                FilePath = filePath
+            };
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("uploading Apache Airflow Job file").ToMcpJson();
+        }
+    }
+
+    [McpServerTool, Description(@"Deletes a DAG or plugin file from an Apache Airflow Job. filePath must start with 'dags/' or 'plugins/'")]
+    public async Task<string> DeleteAirflowJobFileAsync(
+        [Description("The workspace ID containing the Apache Airflow Job (required)")] string workspaceId,
+        [Description("The Apache Airflow Job ID (required)")] string airflowJobId,
+        [Description("The file path to delete, e.g. 'dags/example_dag.py' (required)")] string filePath)
+    {
+        try
+        {
+            _validationService.ValidateRequiredString(workspaceId, nameof(workspaceId));
+            _validationService.ValidateRequiredString(airflowJobId, nameof(airflowJobId));
+            _validationService.ValidateRequiredString(filePath, nameof(filePath));
+
+            await _airflowJobService.DeleteAirflowJobFileAsync(workspaceId, airflowJobId, filePath);
+
+            var result = new
+            {
+                Success = true,
+                Message = $"File '{filePath}' deleted successfully",
+                WorkspaceId = workspaceId,
+                AirflowJobId = airflowJobId,
+                FilePath = filePath
+            };
+
+            return result.ToMcpJson();
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ToValidationError().ToMcpJson();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ex.ToAuthenticationError().ToMcpJson();
+        }
+        catch (HttpRequestException ex)
+        {
+            return ex.ToHttpError().ToMcpJson();
+        }
+        catch (Exception ex)
+        {
+            return ex.ToOperationError("deleting Apache Airflow Job file").ToMcpJson();
         }
     }
 }

@@ -17,6 +17,8 @@ public class AirflowJobToolIntegrationTests : FabricToolIntegrationTestBase
     private const string TestWorkspaceId = "12c5e906-5bfc-4ba4-bd76-c1ce68fc53c8";
     private const string InvalidWorkspaceId = "invalid-workspace-id";
     private const string InvalidAirflowJobId = "00000000-0000-0000-0000-000000000001";
+    private const string TestAirflowJobId = "43c372a2-8fb3-4f19-99e7-629155492a8d";
+    private const string TestFilePath = "dags/dag_bronze_ingest_yellow_taxi.py";
 
     public AirflowJobToolIntegrationTests(McpTestFixture fixture) : base(fixture)
     {
@@ -310,6 +312,157 @@ public class AirflowJobToolIntegrationTests : FabricToolIntegrationTestBase
 
     #endregion
 
+
+    #region GetAirflowJobEnvironmentStatusAsync
+
+    [Fact]
+    public async Task GetAirflowJobEnvironmentStatusAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobEnvironmentStatusAsync(TestWorkspaceId, TestAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task GetAirflowJobEnvironmentStatusAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobEnvironmentStatusAsync(TestWorkspaceId, InvalidAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region GetAirflowJobComputeAsync
+
+    [Fact]
+    public async Task GetAirflowJobComputeAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobComputeAsync(TestWorkspaceId, TestAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task GetAirflowJobComputeAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobComputeAsync(TestWorkspaceId, InvalidAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region GetAirflowJobSettingsAsync
+
+    [Fact]
+    public async Task GetAirflowJobSettingsAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobSettingsAsync(TestWorkspaceId, TestAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task GetAirflowJobSettingsAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobSettingsAsync(TestWorkspaceId, InvalidAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region ListAirflowJobLibrariesAsync
+
+    [Fact]
+    public async Task ListAirflowJobLibrariesAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.ListAirflowJobLibrariesAsync(TestWorkspaceId, TestAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task ListAirflowJobLibrariesAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.ListAirflowJobLibrariesAsync(TestWorkspaceId, InvalidAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region ListAirflowJobFilesAsync
+
+    [Fact]
+    public async Task ListAirflowJobFilesAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.ListAirflowJobFilesAsync(TestWorkspaceId, TestAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task ListAirflowJobFilesAsync_WithRootPath_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.ListAirflowJobFilesAsync(TestWorkspaceId, TestAirflowJobId, rootPath: "dags/");
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task ListAirflowJobFilesAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.ListAirflowJobFilesAsync(TestWorkspaceId, InvalidAirflowJobId);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region GetAirflowJobFileAsync
+
+    [Fact]
+    public async Task GetAirflowJobFileAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobFileAsync(TestWorkspaceId, TestAirflowJobId, TestFilePath);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task GetAirflowJobFileAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.GetAirflowJobFileAsync(TestWorkspaceId, InvalidAirflowJobId, TestFilePath);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region UploadAirflowJobFileAsync
+
+    [Fact]
+    public async Task UploadAirflowJobFileAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.UploadAirflowJobFileAsync(TestWorkspaceId, TestAirflowJobId, TestFilePath, "# test dag");
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task UploadAirflowJobFileAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.UploadAirflowJobFileAsync(TestWorkspaceId, InvalidAirflowJobId, TestFilePath, "# test dag");
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
+
+    #region DeleteAirflowJobFileAsync
+
+    [Fact]
+    public async Task DeleteAirflowJobFileAsync_WithoutAuthentication_ShouldReturnAuthenticationError()
+    {
+        var result = await _airflowJobTool.DeleteAirflowJobFileAsync(TestWorkspaceId, TestAirflowJobId, TestFilePath);
+        AssertAuthenticationError(result);
+    }
+
+    [Fact]
+    public async Task DeleteAirflowJobFileAsync_WithInvalidAirflowJobId_ShouldReturnValidationError()
+    {
+        var result = await _airflowJobTool.DeleteAirflowJobFileAsync(TestWorkspaceId, InvalidAirflowJobId, TestFilePath);
+        AssertAuthenticationError(result);
+    }
+
+    #endregion
     #region Authenticated Scenarios
 
     [SkippableFact]
