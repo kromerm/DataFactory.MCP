@@ -95,7 +95,7 @@ Copilot produces the full DAG Python and displays it inline in chat:
 ```python
 from datetime import datetime, timedelta
 from airflow import DAG
-from microsoft.fabric.airflow.operators import MSFabricRunJobOperator
+from microsoft.fabric.airflow.operators import MSFabricRunJobOperator.run_item
 
 WORKSPACE_ID      = "<your-workspace-id>"
 COPY_JOB_ID       = "<copy-job-id-from-step-2>"
@@ -122,7 +122,7 @@ with DAG(
         fabric_conn_id="fabric-integration",
         workspace_id=WORKSPACE_ID,
         item_id=COPY_JOB_ID,
-        job_type="CopyJobs",
+        job_type="CopyJob",
         timeout=600,
         deferrable=True,
     )
@@ -132,7 +132,7 @@ with DAG(
         fabric_conn_id="fabric-integration",
         workspace_id=WORKSPACE_ID,
         item_id=NOTEBOOK_ID,
-        job_type="RunNotebook",
+        job_type="Notebook",
         timeout=600,
         deferrable=True,
     )
