@@ -5,7 +5,7 @@ You describe what you want in natural language. Copilot reasons through the nami
 
 The DAG you'll build does three things in sequence:
 
-1. **Ingest data** — THe best way to move data in Fabric is Copy Job. Call a Copy Job that pulls files from Azure Data Lake Storage Gen2 into a Lakehouse table
+1. **Ingest data** — The best way to move data in Fabric is Copy Job. Call a Copy Job that pulls files from Azure Data Lake Storage Gen2 into a Lakehouse table
 2. **Run a notebook** — a Fabric Notebook executes after the copy completes
 3. **Refresh a semantic model** — the "My Sales Data" semantic model refreshes once the notebook finishes
 
