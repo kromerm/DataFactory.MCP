@@ -10,6 +10,8 @@ using DataFactory.MCP.Handlers.Pipeline;
 using DataFactory.MCP.Models.Pipeline;
 using DataFactory.MCP.Models.Pipeline.Definition;
 using DataFactory.MCP.Models.Pipeline.Schedule;
+using DataFactory.MCP.Parsing;
+using DataFactory.MCP.Validation;
 
 namespace DataFactory.MCP.Tools.Pipeline;
 
@@ -522,11 +524,6 @@ public class PipelineTool
         }
     }
 
-    private static readonly HashSet<string> ValidDependencyConditions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Succeeded", "Failed", "Skipped", "Completed"
-    };
-
     [McpServerTool, Description(@"Adds or replaces a single top-level activity in properties.activities by exact, case-sensitive name. Replaces the whole activity object (no merge), or appends if no top-level name matches, even when that name exists only as a nested child. Does not search inside containers; to change children, supply the complete top-level container including all children to retain. Checks required inputs and top-level dependency references for missing targets, self-dependency and supported conditions, not cycles or the full graph. Activity-type-specific payloads are not locally schema-validated. A successful response does not guarantee runtime validity or comprehensive synchronous Fabric validation.")]
     public async Task<string> UpsertPipelineActivityAsync(
         [Description("The workspace ID containing the pipeline (required)")] string workspaceId,
@@ -540,78 +537,39 @@ public class PipelineTool
             _validationService.ValidateRequiredString(pipelineId, nameof(pipelineId));
             _validationService.ValidateRequiredString(activityJson, nameof(activityJson));
 
-            // Parse and validate activity JSON
-            JsonNode? activityNode;
-            try
-            {
-                activityNode = JsonNode.Parse(activityJson);
-            }
-            catch (JsonException ex)
-            {
-                throw new ArgumentException($"Invalid activityJson format: {ex.Message}");
-            }
+            var activity = PipelineActivityDocument.Parse(activityJson);
 
-            if (activityNode is not JsonObject activityObj)
-                throw new ArgumentException("activityJson must be a JSON object");
+            var activityName = activity.Name;
+            _validationService.ValidateRequiredString(activityName ?? string.Empty, "activity.name");
 
-            var activityName = activityObj["name"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(activityName))
-                throw new ArgumentException("Activity must have a non-empty 'name' property");
+            var activityType = activity.Type;
+            _validationService.ValidateRequiredString(activityType ?? string.Empty, "activity.type");
 
-            var activityType = activityObj["type"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(activityType))
-                throw new ArgumentException("Activity must have a non-empty 'type' property");
-
-            // Parse and apply dependsOn override if provided
-            if (!string.IsNullOrEmpty(dependsOnJson))
-            {
-                JsonNode? dependsOnNode;
-                try
-                {
-                    dependsOnNode = JsonNode.Parse(dependsOnJson);
-                }
-                catch (JsonException ex)
-                {
-                    throw new ArgumentException($"Invalid dependsOnJson format: {ex.Message}");
-                }
-
-                if (dependsOnNode is not JsonArray)
-                    throw new ArgumentException("dependsOnJson must be a JSON array");
-
-                activityObj["dependsOn"] = dependsOnNode.DeepClone();
-            }
+            activity.ApplyDependsOnOverride(dependsOnJson);
 
             // Pre-service validation: self-dependency and condition checks
-            ValidateActivityDependencies(activityObj, activityName);
+            PipelineActivityValidator.ValidateActivityDependencies(activity.Content, activityName!);
 
             // Get current pipeline definition
             var currentDefinition = await _pipelineService.GetPipelineDefinitionAsync(workspaceId, pipelineId);
 
-            var contentPart = currentDefinition.Parts.FirstOrDefault(p => p.Path == "pipeline-content.json")
-                ?? throw new ArgumentException("Pipeline definition does not contain a 'pipeline-content.json' part");
-
-            var contentJson = Encoding.UTF8.GetString(Convert.FromBase64String(contentPart.Payload));
-            var contentNode = JsonNode.Parse(contentJson)
-                ?? throw new ArgumentException("Failed to parse pipeline content JSON");
-
-            var properties = contentNode["properties"]?.AsObject()
-                ?? throw new ArgumentException("Pipeline content missing 'properties' object");
-
-            var activities = properties["activities"]?.AsArray();
-            if (activities == null)
-            {
-                activities = new JsonArray();
-                properties["activities"] = activities;
-            }
+            var content = PipelineContentDocument.Parse(currentDefinition);
+            var activities = content.GetActivities(createIfMissing: true);
 
             // Upsert by exact top-level name, replacing the whole activity
             bool replaced = false;
             for (int i = 0; i < activities.Count; i++)
             {
-                var existingName = activities[i]?["name"]?.GetValue<string>();
-                if (existingName == activityName)
+                var existingActivity = activities[i];
+                if (existingActivity is null)
+                    continue;
+                if (existingActivity is not JsonObject existingObject)
+                    throw new InvalidOperationException("Pipeline activity must be an object or null");
+
+                var existingName = existingObject["name"]?.GetValue<string>();
+                if (string.Equals(existingName, activityName, StringComparison.Ordinal))
                 {
-                    activities[i] = activityObj.DeepClone();
+                    activities[i] = activity.Content.DeepClone();
                     replaced = true;
                     break;
                 }
@@ -619,30 +577,13 @@ public class PipelineTool
 
             if (!replaced)
             {
-                activities.Add(activityObj.DeepClone());
+                activities.Add(activity.Content.DeepClone());
             }
 
             // Validate top-level dependency references and conditions (not cycles or nested activities)
-            ValidateActivityGraph(activities);
+            PipelineActivityValidator.ValidateActivityGraph(activities);
 
-            // Re-serialize and update
-            var updatedContentJson = contentNode.ToJsonString();
-            var base64Payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updatedContentJson));
-
-            var definition = new PipelineDefinition
-            {
-                Parts = new List<PipelineDefinitionPart>
-                {
-                    new PipelineDefinitionPart
-                    {
-                        Path = "pipeline-content.json",
-                        Payload = base64Payload,
-                        PayloadType = "InlineBase64"
-                    }
-                }
-            };
-
-            await _pipelineService.UpdatePipelineDefinitionAsync(workspaceId, pipelineId, definition);
+            await _pipelineService.UpdatePipelineDefinitionAsync(workspaceId, pipelineId, content.ToDefinition());
 
             var result = new
             {
@@ -672,7 +613,19 @@ public class PipelineTool
         {
             return ex.ToHttpError().ToMcpJson();
         }
-        catch (Exception ex)
+        catch (JsonException ex)
+        {
+            return ex.ToOperationError("upserting pipeline activity").ToMcpJson();
+        }
+        catch (FormatException ex)
+        {
+            return ex.ToOperationError("upserting pipeline activity").ToMcpJson();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.ToOperationError("upserting pipeline activity").ToMcpJson();
+        }
+        catch (OperationCanceledException ex)
         {
             return ex.ToOperationError("upserting pipeline activity").ToMcpJson();
         }
@@ -692,24 +645,21 @@ public class PipelineTool
 
             var currentDefinition = await _pipelineService.GetPipelineDefinitionAsync(workspaceId, pipelineId);
 
-            var contentPart = currentDefinition.Parts.FirstOrDefault(p => p.Path == "pipeline-content.json")
-                ?? throw new ArgumentException("Pipeline definition does not contain a 'pipeline-content.json' part");
-
-            var contentJson = Encoding.UTF8.GetString(Convert.FromBase64String(contentPart.Payload));
-            var contentNode = JsonNode.Parse(contentJson)
-                ?? throw new ArgumentException("Failed to parse pipeline content JSON");
-
-            var properties = contentNode["properties"]?.AsObject()
-                ?? throw new ArgumentException("Pipeline content missing 'properties' object");
-
-            var activities = properties["activities"]?.AsArray()
-                ?? throw new ArgumentException("Pipeline has no activities array");
+            var content = PipelineContentDocument.Parse(currentDefinition);
+            var activities = content.GetActivities(createIfMissing: false);
 
             // Find the top-level activity to remove
             int removeIndex = -1;
             for (int i = 0; i < activities.Count; i++)
             {
-                if (activities[i]?["name"]?.GetValue<string>() == activityName)
+                var existingActivity = activities[i];
+                if (existingActivity is null)
+                    continue;
+                if (existingActivity is not JsonObject existingObject)
+                    throw new InvalidOperationException("Pipeline activity must be an object or null");
+
+                if (string.Equals(
+                    existingObject["name"]?.GetValue<string>(), activityName, StringComparison.Ordinal))
                 {
                     removeIndex = i;
                     break;
@@ -719,49 +669,11 @@ public class PipelineTool
             if (removeIndex < 0)
                 throw new ArgumentException($"Activity '{activityName}' not found in pipeline");
 
-            // Check for dependsOn references from other top-level activities
-            var dependentActivities = new List<string>();
-            foreach (var act in activities)
-            {
-                var name = act?["name"]?.GetValue<string>();
-                if (name == activityName) continue;
-
-                var dependsOn = act?["dependsOn"]?.AsArray();
-                if (dependsOn == null) continue;
-
-                foreach (var dep in dependsOn)
-                {
-                    if (dep?["activity"]?.GetValue<string>() == activityName)
-                    {
-                        dependentActivities.Add(name ?? "(unnamed)");
-                        break;
-                    }
-                }
-            }
-
-            if (dependentActivities.Count > 0)
-                throw new ArgumentException($"Cannot remove activity '{activityName}' because it is referenced by: {string.Join(", ", dependentActivities)}");
+            PipelineActivityValidator.ValidateRemoval(activities, activityName);
 
             activities.RemoveAt(removeIndex);
 
-            // Re-serialize and update
-            var updatedContentJson = contentNode.ToJsonString();
-            var base64Payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updatedContentJson));
-
-            var definition = new PipelineDefinition
-            {
-                Parts = new List<PipelineDefinitionPart>
-                {
-                    new PipelineDefinitionPart
-                    {
-                        Path = "pipeline-content.json",
-                        Payload = base64Payload,
-                        PayloadType = "InlineBase64"
-                    }
-                }
-            };
-
-            await _pipelineService.UpdatePipelineDefinitionAsync(workspaceId, pipelineId, definition);
+            await _pipelineService.UpdatePipelineDefinitionAsync(workspaceId, pipelineId, content.ToDefinition());
 
             var result = new
             {
@@ -787,79 +699,21 @@ public class PipelineTool
         {
             return ex.ToHttpError().ToMcpJson();
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
             return ex.ToOperationError("removing pipeline activity").ToMcpJson();
         }
-    }
-
-    private static void ValidateActivityDependencies(JsonObject activity, string activityName)
-    {
-        var dependsOn = activity["dependsOn"]?.AsArray();
-        if (dependsOn == null || dependsOn.Count == 0) return;
-
-        foreach (var dep in dependsOn)
+        catch (FormatException ex)
         {
-            var depObj = dep?.AsObject();
-            if (depObj == null) continue;
-
-            var depActivity = depObj["activity"]?.GetValue<string>();
-            if (depActivity == activityName)
-                throw new ArgumentException($"Activity '{activityName}' cannot depend on itself");
-
-            var conditions = depObj["dependencyConditions"]?.AsArray();
-            if (conditions != null)
-            {
-                foreach (var cond in conditions)
-                {
-                    var condValue = cond?.GetValue<string>();
-                    if (condValue != null && !ValidDependencyConditions.Contains(condValue))
-                        throw new ArgumentException($"Invalid dependency condition '{condValue}'. Valid values: Succeeded, Failed, Skipped, Completed");
-                }
-            }
+            return ex.ToOperationError("removing pipeline activity").ToMcpJson();
         }
-    }
-
-    private static void ValidateActivityGraph(JsonArray activities)
-    {
-        var activityNames = new HashSet<string>();
-        foreach (var act in activities)
+        catch (InvalidOperationException ex)
         {
-            var name = act?["name"]?.GetValue<string>();
-            if (name != null) activityNames.Add(name);
+            return ex.ToOperationError("removing pipeline activity").ToMcpJson();
         }
-
-        foreach (var act in activities)
+        catch (OperationCanceledException ex)
         {
-            var actObj = act?.AsObject();
-            if (actObj == null) continue;
-            var name = actObj["name"]?.GetValue<string>() ?? "";
-            var dependsOn = actObj["dependsOn"]?.AsArray();
-            if (dependsOn == null) continue;
-
-            foreach (var dep in dependsOn)
-            {
-                var depObj = dep?.AsObject();
-                if (depObj == null) continue;
-                var depActivity = depObj["activity"]?.GetValue<string>();
-
-                if (depActivity == name)
-                    throw new ArgumentException($"Activity '{name}' cannot depend on itself");
-
-                if (depActivity != null && !activityNames.Contains(depActivity))
-                    throw new ArgumentException($"Activity '{name}' depends on '{depActivity}' which does not exist in the pipeline");
-
-                var conditions = depObj["dependencyConditions"]?.AsArray();
-                if (conditions != null)
-                {
-                    foreach (var cond in conditions)
-                    {
-                        var condValue = cond?.GetValue<string>();
-                        if (condValue != null && !ValidDependencyConditions.Contains(condValue))
-                            throw new ArgumentException($"Invalid dependency condition '{condValue}' in activity '{name}'. Valid values: Succeeded, Failed, Skipped, Completed");
-                    }
-                }
-            }
+            return ex.ToOperationError("removing pipeline activity").ToMcpJson();
         }
     }
 

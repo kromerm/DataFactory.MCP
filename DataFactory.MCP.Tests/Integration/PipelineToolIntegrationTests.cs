@@ -604,7 +604,7 @@ public class PipelineToolIntegrationTests : FabricToolIntegrationTestBase
         var result = await _pipelineTool.UpsertPipelineActivityAsync(TestWorkspaceId, InvalidPipelineId, activityJson);
 
         // Assert
-        McpResponseAssertHelper.AssertValidationError(result, "Activity must have a non-empty 'name' property");
+        McpResponseAssertHelper.AssertValidationError(result, Messages.InvalidParameterEmpty("activity.name"));
     }
 
     [Fact]
@@ -617,7 +617,7 @@ public class PipelineToolIntegrationTests : FabricToolIntegrationTestBase
         var result = await _pipelineTool.UpsertPipelineActivityAsync(TestWorkspaceId, InvalidPipelineId, activityJson);
 
         // Assert
-        McpResponseAssertHelper.AssertValidationError(result, "Activity must have a non-empty 'type' property");
+        McpResponseAssertHelper.AssertValidationError(result, Messages.InvalidParameterEmpty("activity.type"));
     }
 
     [Fact]

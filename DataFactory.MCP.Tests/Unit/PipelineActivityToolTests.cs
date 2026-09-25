@@ -1,10 +1,12 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DataFactory.MCP.Abstractions.Interfaces;
 using DataFactory.MCP.Handlers.Pipeline;
+using DataFactory.MCP.Models;
 using DataFactory.MCP.Models.Pipeline;
 using DataFactory.MCP.Models.Pipeline.Definition;
 using DataFactory.MCP.Models.Pipeline.Schedule;
@@ -73,6 +75,18 @@ public class PipelineActivityToolTests
         }
         """;
 
+    public static TheoryData<string, string> RequiredActivityFieldCases => new()
+    {
+        { """{"type":"Wait"}""", Messages.InvalidParameterEmpty("activity.name") },
+        { """{"name":null,"type":"Wait"}""", Messages.InvalidParameterEmpty("activity.name") },
+        { """{"name":"","type":"Wait"}""", Messages.InvalidParameterEmpty("activity.name") },
+        { """{"name":" ","type":"Wait"}""", Messages.InvalidParameterEmpty("activity.name") },
+        { """{"name":"New"}""", Messages.InvalidParameterEmpty("activity.type") },
+        { """{"name":"New","type":null}""", Messages.InvalidParameterEmpty("activity.type") },
+        { """{"name":"New","type":""}""", Messages.InvalidParameterEmpty("activity.type") },
+        { """{"name":"New","type":" "}""", Messages.InvalidParameterEmpty("activity.type") }
+    };
+
     [Theory]
     [InlineData("Target", "Replaced", 3)]
     [InlineData("target", "Added", 4)]
@@ -93,6 +107,22 @@ public class PipelineActivityToolTests
         // Assert: omitted old policy/typeProperties/extension fields are not merged back.
         AssertUpsertSuccess(result, name, "WebActivity", operation, count);
         AssertSubmittedContent(service, expected);
+    }
+
+    [Fact]
+    public async Task UpsertPipelineActivityAsync_DuplicateTopLevelNames_ReplacesFirstMatchOnly()
+    {
+        const string first = """{"name":"Duplicate","type":"Wait","position":1}""";
+        const string second = """{"name":"Duplicate","type":"Wait","position":2}""";
+        const string replacement = """{"name":"Duplicate","type":"Future","position":3}""";
+        var service = CreateService(CreateContent(first, second, Sibling));
+        var tool = CreateTool(service);
+
+        var result = await tool.UpsertPipelineActivityAsync(
+            WorkspaceId, PipelineId, replacement);
+
+        AssertUpsertSuccess(result, "Duplicate", "Future", "Replaced", 3);
+        AssertSubmittedContent(service, CreateContent(replacement, second, Sibling));
     }
 
     [Theory]
@@ -336,6 +366,36 @@ public class PipelineActivityToolTests
     }
 
     [Theory]
+    [MemberData(nameof(RequiredActivityFieldCases))]
+    public async Task UpsertPipelineActivityAsync_InvalidRequiredActivityField_UsesCentralizedMessage(
+        string activity, string error)
+    {
+        var service = CreateService(CreateContent(Sibling));
+        var tool = CreateTool(service);
+
+        var result = await tool.UpsertPipelineActivityAsync(WorkspaceId, PipelineId, activity);
+
+        AssertError(result, "ValidationError", error);
+        AssertNoUpdate(service, expectedGetCount: 0);
+    }
+
+    [Fact]
+    public async Task UpsertPipelineActivityAsync_UsesInjectedValidationServiceWithExactActivityLabels()
+    {
+        var service = CreateService(CreateContent(Sibling));
+        var validation = new RecordingValidationService();
+        var tool = new PipelineTool(service, validation, new PipelineHandler(service));
+
+        var result = await tool.UpsertPipelineActivityAsync(
+            WorkspaceId, PipelineId, """{"name":"New","type":"Wait"}""");
+
+        AssertUpsertSuccess(result, "New", "Wait", "Added", 2);
+        Assert.Equal(
+            new[] { "workspaceId", "pipelineId", "activityJson", "activity.name", "activity.type" },
+            validation.RequiredStringLabels);
+    }
+
+    [Theory]
     [InlineData(false, false, false)]
     [InlineData(false, false, true)]
     [InlineData(false, true, false)]
@@ -370,33 +430,82 @@ public class PipelineActivityToolTests
     }
 
     [Theory]
-    [InlineData(false, true, "pipeline-content.json")]
-    [InlineData(true, true, "pipeline-content.json")]
-    [InlineData(false, false, "missing 'properties' object")]
-    [InlineData(true, false, "missing 'properties' object")]
-    public async Task ActivityMutation_MissingContentPartOrProperties_DoesNotSave(
-        bool remove, bool missingPart, string error)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ActivityMutation_InvalidOperationServiceFailure_DoesNotReturnSuccess(bool remove)
     {
-        var service = missingPart
-            ? new FakePipelineService(new PipelineDefinition())
-            : CreateService(ParseObject("""{"name":"Pipeline without properties"}"""));
+        var service = CreateService(CreateContent(Target, Sibling));
+        service.GetException = new InvalidOperationException("invalid service state");
+        var tool = CreateTool(service);
+
+        var result = remove
+            ? await tool.RemovePipelineActivityAsync(WorkspaceId, PipelineId, "Target")
+            : await tool.UpsertPipelineActivityAsync(WorkspaceId, PipelineId, Tail);
+
+        AssertOperationError(result, "invalid service state");
+        AssertNoUpdate(service, expectedGetCount: 1);
+    }
+
+    [Theory]
+    [InlineData(false, "MalformedBase64", "OperationError", "Base-64")]
+    [InlineData(true, "MalformedBase64", "OperationError", "Base-64")]
+    [InlineData(false, "MalformedJson", "OperationError", null)]
+    [InlineData(true, "MalformedJson", "OperationError", null)]
+    [InlineData(false, "NullRoot", "ValidationError", "Failed to parse pipeline content JSON")]
+    [InlineData(true, "NullRoot", "ValidationError", "Failed to parse pipeline content JSON")]
+    [InlineData(false, "ArrayRoot", "OperationError", "must be an object")]
+    [InlineData(true, "ArrayRoot", "OperationError", "must be an object")]
+    [InlineData(false, "MissingProperties", "ValidationError", "missing 'properties' object")]
+    [InlineData(true, "MissingProperties", "ValidationError", "missing 'properties' object")]
+    [InlineData(false, "NullProperties", "ValidationError", "missing 'properties' object")]
+    [InlineData(true, "NullProperties", "ValidationError", "missing 'properties' object")]
+    [InlineData(false, "WrongProperties", "OperationError", "'properties' must be an object")]
+    [InlineData(true, "WrongProperties", "OperationError", "'properties' must be an object")]
+    [InlineData(false, "WrongActivities", "OperationError", "'activities' must be an array")]
+    [InlineData(true, "WrongActivities", "OperationError", "'activities' must be an array")]
+    [InlineData(false, "NullDefinition", "OperationError", "definition is null")]
+    [InlineData(true, "NullDefinition", "OperationError", "definition is null")]
+    [InlineData(false, "NullParts", "OperationError", "parts are null")]
+    [InlineData(true, "NullParts", "OperationError", "parts are null")]
+    [InlineData(false, "NullPart", "OperationError", "contains a null part")]
+    [InlineData(true, "NullPart", "OperationError", "contains a null part")]
+    [InlineData(false, "NullPayload", "OperationError", "payload is null")]
+    [InlineData(true, "NullPayload", "OperationError", "payload is null")]
+    [InlineData(false, "AbsentContentPart", "ValidationError", "pipeline-content.json")]
+    [InlineData(true, "AbsentContentPart", "ValidationError", "pipeline-content.json")]
+    public async Task ActivityMutation_MalformedPipelineContent_DoesNotSave(
+        bool remove, string scenario, string expectedError, string? expectedMessage)
+    {
+        var service = new FakePipelineService(CreateMalformedDefinition(scenario));
         var tool = CreateTool(service);
 
         var result = remove
             ? await tool.RemovePipelineActivityAsync(WorkspaceId, PipelineId, "Target")
             : await tool.UpsertPipelineActivityAsync(WorkspaceId, PipelineId, Target);
 
-        AssertError(result, "ValidationError", error);
+        if (expectedError == "OperationError")
+            AssertOperationError(result, expectedMessage);
+        else
+        {
+            Assert.NotNull(expectedMessage);
+            AssertError(result, expectedError, expectedMessage);
+        }
         AssertNoUpdate(service, expectedGetCount: 1);
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ActivityMutation_MissingActivitiesArray_UpsertCreatesItButRemoveDoesNotSave(bool remove)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ActivityMutation_MissingOrNullActivities_UpsertCreatesItButRemoveDoesNotSave(
+        bool remove, bool explicitNull)
     {
         var content = CreateContent();
-        content["properties"]!.AsObject().Remove("activities");
+        if (explicitNull)
+            content["properties"]!["activities"] = null;
+        else
+            content["properties"]!.AsObject().Remove("activities");
         var service = CreateService(content);
         var tool = CreateTool(service);
 
@@ -498,6 +607,52 @@ public class PipelineActivityToolTests
             }
         });
 
+    private static PipelineDefinition? CreateMalformedDefinition(string scenario) => scenario switch
+    {
+        "MalformedBase64" => DefinitionWithPayload("not-base64"),
+        "MalformedJson" => DefinitionWithContent("not-json{"),
+        "NullRoot" => DefinitionWithContent("null"),
+        "ArrayRoot" => DefinitionWithContent("[]"),
+        "MissingProperties" => DefinitionWithContent("""{"name":"Pipeline"}"""),
+        "NullProperties" => DefinitionWithContent("""{"properties":null}"""),
+        "WrongProperties" => DefinitionWithContent("""{"properties":[]}"""),
+        "WrongActivities" => DefinitionWithContent("""{"properties":{"activities":{}}}"""),
+        "NullDefinition" => null,
+        "NullParts" => new PipelineDefinition { Parts = null! },
+        "NullPart" => new PipelineDefinition { Parts = [null!] },
+        "NullPayload" => DefinitionWithPayload(null!),
+        "AbsentContentPart" => new PipelineDefinition
+        {
+            Parts =
+            [
+                new PipelineDefinitionPart
+                {
+                    Path = "other.json",
+                    Payload = "",
+                    PayloadType = "InlineBase64"
+                }
+            ]
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+    };
+
+    private static PipelineDefinition DefinitionWithContent(string content) =>
+        DefinitionWithPayload(Convert.ToBase64String(Encoding.UTF8.GetBytes(content)));
+
+    private static PipelineDefinition DefinitionWithPayload(string payload) =>
+        new()
+        {
+            Parts =
+            [
+                new PipelineDefinitionPart
+                {
+                    Path = "pipeline-content.json",
+                    Payload = payload,
+                    PayloadType = "InlineBase64"
+                }
+            ]
+        };
+
     private static string GetContainer(string type) => type switch
     {
         "ForEach" => ForEachContainer,
@@ -596,6 +751,17 @@ public class PipelineActivityToolTests
         Assert.False(response.ContainsKey("operation"));
     }
 
+    private static void AssertOperationError(string result, string? message)
+    {
+        var response = ParseObject(result);
+        Assert.False(response["success"]!.GetValue<bool>());
+        Assert.Equal("OperationError", response["error"]!.GetValue<string>());
+        if (message is not null)
+            Assert.Contains(message, response["message"]!.GetValue<string>());
+        Assert.NotNull(response["operation"]);
+        Assert.False(response.ContainsKey("warnings"));
+    }
+
     private static JsonObject ReadTemplate(string fileName)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
@@ -626,9 +792,9 @@ public class PipelineActivityToolTests
         AssertSubmittedContent(service, CreateContent(Sibling, activityJson));
     }
 
-    private sealed class FakePipelineService(PipelineDefinition definition) : IFabricPipelineService
+    private sealed class FakePipelineService(PipelineDefinition? definition) : IFabricPipelineService
     {
-        public PipelineDefinition Definition { get; } = definition;
+        public PipelineDefinition Definition { get; } = definition!;
         public PipelineDefinition? SubmittedDefinition { get; private set; }
         public int GetCount { get; private set; }
         public int UpdateCount { get; private set; }
@@ -674,5 +840,28 @@ public class PipelineActivityToolTests
             throw new NotSupportedException();
         public Task<ItemSchedule> SetPipelineScheduleEnabledAsync(string workspaceId, string pipelineId, string scheduleId, bool enabled) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class RecordingValidationService : IValidationService
+    {
+        private readonly ValidationService _inner = new();
+
+        public List<string> RequiredStringLabels { get; } = [];
+
+        public void ValidateAndThrow<T>(T obj, string parameterName) where T : class =>
+            _inner.ValidateAndThrow(obj, parameterName);
+
+        public IList<ValidationResult> Validate<T>(T obj) where T : class =>
+            _inner.Validate(obj);
+
+        public void ValidateRequiredString(
+            string value, string parameterName, int? maxLength = null)
+        {
+            RequiredStringLabels.Add(parameterName);
+            _inner.ValidateRequiredString(value, parameterName, maxLength);
+        }
+
+        public void ValidateGuid(string value, string parameterName) =>
+            _inner.ValidateGuid(value, parameterName);
     }
 }
